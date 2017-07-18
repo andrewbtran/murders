@@ -1,0 +1,146 @@
+---
+title: "Murder clusters"
+author: "Andrew Ba Tran"
+date: "7/18/2017"
+output: pdf_document
+---
+
+```{r loading_libraries, warning=F, message=F}
+library(foreign)
+library(tidyverse)
+library(knitr)
+```
+
+```{r importing_data, warning=F, message=F}
+
+#data <- read.spss("data/SHR1976_2015.sav", to.data.frame=TRUE)
+#data2 <- read.spss("data/SHR1976_2015.sav", to.data.frame=TRUE, use.value.labels=F)
+
+#write.csv(data, "data/raw_data1.csv")
+#write.csv(data2, "data/raw_data2.csv")
+
+data <- read_csv("data/raw_data1.csv")
+data2 <- read_csv("data/raw_data2.csv")
+
+data <- select(data,
+               ID, CNTYFIPS, Ori, State, Agency, AGENCY_A, 
+               Agentype_label=Agentype,
+               Source_label=Source,
+               Solved_label=Solved,
+               Year,
+               Month_label=Month,
+               Incident, ActionType,
+               Homicide_label=Homicide,
+               Situation_label=Situation,
+               VicAge,
+               VicSex_label=VicSex,
+               VicRace_label=VicRace,
+               VicEthnic, OffAge,
+               OffSex_label=OffSex,
+               OffRace_label=OffRace,
+               OffEthnic,
+               Weapon_label=Weapon,
+               Relationship_label=Relationship,
+               Circumstance_label=Circumstance,
+               Subcircum, VicCount, OffCount, FileDate, 
+               fstate_label=fstate,
+               MSA_label=MSA,
+               StateName2)
+
+data2 <- select(data2,
+               Agentype_value=Agentype,
+               Source_value=Source,
+               Solved_value=Solved,
+               Month_value=Month,
+               Homicide_value=Homicide,
+               Situation_value=Situation,
+               VicSex_value=VicSex,
+               VicRace_value=VicRace,
+               OffSex_value=OffSex,
+               OffRace_value=OffRace,
+               Weapon_value=Weapon,
+               Relationship_value=Relationship,
+               Circumstance_value=Circumstance,
+               fstate_value=fstate,
+               MSA_value=MSA)
+
+data <- cbind(data, data2)
+
+data <-  select(data,
+                ID, CNTYFIPS, Ori, State, Agency, AGENCY_A, 
+                Agentype_label, Agentype_value,
+                Source_label, Source_value,
+                Solved_label, Solved_value,
+                Year,
+                Month_label, Month_value,
+                Incident, ActionType,
+                Homicide_label,Homicide_value,
+                Situation_label,Situation_value,
+                VicAge,
+                VicSex_label,VicSex_value,
+                VicRace_label,VicRace_value,
+                VicEthnic, OffAge,
+                OffSex_label,OffSex_value,
+                OffRace_label,OffRace_value,
+                OffEthnic,
+                Weapon_label,Weapon_value,
+                Relationship_label,Relationship_value,
+                Circumstance_label,Circumstance_value,
+                Subcircum, VicCount, OffCount, FileDate, 
+                fstate_label,fstate_value,
+                MSA_label,MSA_value,
+                StateName2)
+```
+
+```{r transforming_data, warning=F, message=F}
+data <- mutate(data, 
+               solved_num = ifelse(Solved_label=="Yes", 1, 0), 
+               agegroup_label = ifelse(VicAge %in% 0:14, "0-14", 
+                                      ifelse(VicAge %in% 15:19, "15-19",
+                                      ifelse(VicAge %in% 20:50, "20-50",
+                                      ifelse(VicAge %in% 51:99, "Over 50", "Unknown")))),
+               agegroup_value = ifelse(VicAge %in% 0:14, 1, 
+                               ifelse(VicAge %in% 15:19, 2,
+                                      ifelse(VicAge %in% 20:50, 3,
+                                             ifelse(VicAge %in% 51:99,  4, 9)))),
+               sex = ifelse(VicSex_label=="Male", 1,
+                          ifelse(VicSex_label=="Female", 2, 9)),
+               murdgrp_msa=(MSA_value*10000)+(sex*1000)+(agegroup_value*100)+Weapon_value,
+               murdgrp_cnty=(as.numeric(as.character(CNTYFIPS))*10000)+(sex*1000)+(agegroup_value*100)+Weapon_value)
+               
+```
+
+```{r aggregating_by_msa, warning=F, message=F}
+murdergroup_msa <- data %>%
+  group_by(murdgrp_msa, agegroup_label, VicSex_label, MSA_label, Weapon_label) %>%
+  summarize(total=n(), solved=sum(Solved_value)) %>%
+  mutate(percent=round(solved/total*100,2))
+knit(head(murdergroup_msa))
+```
+
+```{r aggregating_by_cnty, warning=F, message=F}
+murdergroup_cnty <- data %>%
+  group_by(murdgrp_cnty, agegroup_label, VicSex_label, MSA_label, Weapon_label) %>%
+  summarize(total=n(), solved=sum(Solved_value)) %>%
+  mutate(percent=round(solved/total*100,2))
+knit(head(murdergroup_cnty, 10))
+```
+
+```{r county_spots, warning=F, message=F}
+spots_cnty <- murdergroup_cnty %>% 
+  filter(VicSex_label=="Female", murdgrp_cnty>0, percent <=.33) %>% 
+  mutate(unsolved=total-solved) %>% 
+  arrange(desc(unsolved))
+knit(head(spots_cnty, 10))
+```
+
+```{r msa_spots, warning=F, message=F}
+spots_msa <- murdergroup_msa %>% 
+  filter(VicSex_label=="Female", murdgrp_msa>0, percent <=.33) %>% 
+  mutate(unsolved=total-solved) %>% 
+  arrange(desc(unsolved))
+knit(head(spots_msa, 10))
+```
+
+
+
