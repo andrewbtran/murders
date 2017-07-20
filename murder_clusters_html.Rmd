@@ -13,9 +13,20 @@ library(foreign)
 library(tidyverse)
 library(knitr)
 library(DT)
+library(tigris)
+library(stringr)
+library(ggplot2) #development version
+source("theme_nothing.R")
 ```
 
 ```{r importing_data, warning=F, message=F}
+
+data(fips_codes)
+county_names <- fips_codes
+county_names$fips <- as.numeric(paste0(county_names$state_code, county_names$county_code))
+county_names$county_name <- gsub(" County.*", "", county_names$county)
+county_names$county_name <- paste0(county_names$county_name, ", ", county_names$state)
+county_names <- select(county_names, fips, county_name)
 
 data <- read.spss("data/SHR1976_2015.sav", to.data.frame=TRUE)
 data2 <- read.spss("data/SHR1976_2015.sav", to.data.frame=TRUE, use.value.labels=F)
@@ -91,6 +102,18 @@ data <-  select(data,
 ```
 
 ```{r transforming_data, warning=F, message=F}
+
+data$CNTYFIPS <- as.character(data$CNTYFIPS)
+data$CNTYFIPS <- ifelse(data$CNTYFIPS=="51560", "51005", data$CNTYFIPS)
+data$CNTYFIPS <- ifelse(data$CNTYFIPS=="02232", "02105", data$CNTYFIPS)
+data$CNTYFIPS <- ifelse(data$CNTYFIPS=="02280", "02195", data$CNTYFIPS)
+data$CNTYFIPS <- ifelse(data$CNTYFIPS=="02201", "02198", data$CNTYFIPS)
+data$CNTYFIPS <- ifelse(data$CNTYFIPS=="02201", "02198", data$CNTYFIPS)
+
+
+data$fips <- as.numeric(data$CNTYFIPS)
+data <- left_join(data, county_names)
+
 data <- mutate(data, 
                solved_num = ifelse(Solved_label=="Yes", 1, 0), 
                agegroup_label = ifelse(VicAge %in% 0:14, "0-14", 
@@ -111,14 +134,15 @@ data <- mutate(data,
 ```{r aggregating_by_msa, warning=F, message=F}
 murdergroup_msa <- data %>%
   group_by(murdgrp_msa, agegroup_label, VicSex_label, MSA_label, Weapon_label) %>%
-  summarize(total=n(), solved=sum(Solved_value)) %>%
+#  filter(Year>=2000) %>% 
+  summarize(total=n(), solved=sum(Solved_value, na.rm=T)) %>%
   mutate(percent=round(solved/total*100,2))
 #datatable(murdergroup_msa)
 ```
 
 ```{r aggregating_by_cnty, warning=F, message=F}
 murdergroup_cnty <- data %>%
-  group_by(murdgrp_cnty, agegroup_label, VicSex_label, MSA_label, Weapon_label) %>%
+  group_by(murdgrp_cnty, agegroup_label, VicSex_label, county_name, Weapon_label) %>%
   summarize(total=n(), solved=sum(Solved_value)) %>%
   mutate(percent=round(solved/total*100,2))
 #datatable(murdergroup_cnty)
@@ -128,7 +152,7 @@ murdergroup_cnty <- data %>%
 
 ```{r county_spots, warning=F, message=F}
 spots_cnty <- murdergroup_cnty %>% 
-  filter(VicSex_label=="Female", murdgrp_cnty>0, percent <=.33) %>% 
+  filter(VicSex_label=="Female", murdgrp_cnty>0, percent <=33) %>% 
   mutate(unsolved=total-solved) %>% 
   arrange(desc(unsolved))
 datatable(spots_cnty)
@@ -138,9 +162,75 @@ datatable(spots_cnty)
 
 ```{r msa_spots, warning=F, message=F}
 spots_msa <- murdergroup_msa %>% 
-  filter(VicSex_label=="Female", murdgrp_msa>0, percent <=.33) %>% 
+  filter(VicSex_label=="Female", murdgrp_msa>0, percent <=33) %>% 
   mutate(unsolved=total-solved) %>% 
   arrange(desc(unsolved))
 datatable(spots_msa)
 ```
 
+# Clusters by County since 2006
+
+```{r county_spots_2006, warning=F, message=F}
+spots_cnty_2006 <- data %>%
+  group_by(murdgrp_cnty, agegroup_label, VicSex_label, county_name, Weapon_label, CNTYFIPS) %>%
+  filter(Year>=2006) %>% 
+  summarize(total=n(), solved=sum(Solved_value)) %>%
+  mutate(percent=round(solved/total*100,2)) %>%
+  filter(VicSex_label=="Female", murdgrp_cnty>0, percent <=33) %>% 
+  mutate(unsolved=total-solved) %>% 
+  filter(unsolved!=1) %>% 
+  arrange(desc(unsolved))
+
+datatable(spots_cnty_2006)
+```
+
+```{r maps_prep, warning=F, message=F, fig.width=9, fig.height=40}
+
+counties_map <- counties(cb = FALSE, resolution = "500k", year = NULL)
+counties_map <- subset(counties_map, STATEFP!="78" & STATEFP!="72" & STATEFP!="66" & STATEFP!="60" & STATEFP!="69" & STATEFP!="02" & STATEFP!="15")
+cm_fort <- fortify(counties_map, region="GEOID")
+
+colnames(spots_cnty_2006)[colnames(spots_cnty_2006) == 'CNTYFIPS'] <- 'id'
+spots_cnty_2006$id <- str_trim(spots_cnty_2006$id)
+cm_fort_spots <- left_join(cm_fort, spots_cnty_2006)
+cm_fort_spots <- filter(cm_fort_spots, !is.na(unsolved))
+
+#cm_fort_spots_2050 <- filter(cm_fort_spots, agegroup_label=="20-50")
+#cm_fort_spots_2050_s <- filter(cm_fort_spots_2050, Weapon_label=="Strangulation - hanging")
+
+age_groups <- unique(cm_fort_spots$agegroup_label)
+weapons <- unique(cm_fort_spots$Weapon_label)
+
+```
+
+```{r maps, warning=F, message=F, fig.width=9, fig.height=6}
+
+for (i in 1:length(age_groups)) {
+  for (x in 1:length(weapons)) {
+    cm_fort_spots_sub <- filter(cm_fort_spots, agegroup_label==age_groups[i] & Weapon_label==weapons[x])
+    
+    counties_m <- ggplot()
+    counties_m <- counties_m + geom_polygon(data=cm_fort, aes(x=long, y=lat, group=group),  fill=NA, color="black", size=0.05)
+    counties_m <- counties_m + geom_polygon(data=cm_fort_spots_sub, aes(x=long, y=lat, group=group, fill=unsolved), color="black", size=0.2)
+    counties_m <- counties_m + coord_map("albers",lat0=39, lat1=45)
+    #counties_m <- counties_m + facet_wrap(agegroup_label~Weapon_label, ncol=2)
+    #counties_m <- counties_m + scale_fill_gradient2(low=muted("purple"), high=muted("green"), label=dollar, name=NULL, breaks=c(-9000,0,3000))
+    counties_m <- counties_m + theme_nothing(legend=TRUE) 
+    counties_m <- counties_m + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+                               panel.grid.minor = element_blank())
+    counties_m <- counties_m + theme(strip.background = element_blank(),
+                               strip.text.y = element_blank())
+    counties_m <- counties_m + labs(x=NULL, y=NULL, title=weapons[x], subtitle=age_groups[i])
+    counties_m <- counties_m + theme(plot.title=element_text(face="bold", hjust=0))
+    counties_m <- counties_m + theme(plot.subtitle=element_text(face="italic", size=9, margin=margin(l=20)))
+    counties_m <- counties_m + theme(plot.caption=element_text(size=12, margin=margin(t=12), color="#7a7d7e", hjust=0))
+    counties_m <- counties_m + theme(legend.key.size = unit(1, "cm"))
+    counties_m <- counties_m + theme(legend.position="top")
+    print(counties_m)
+    #counties_m <- counties_m + theme(strip.text.x = element_text(size=12, face="bold"))
+    #ggsave(paste0(age_groups[i],"_",weapons[x], ".png"))
+    #print(paste0(age_groups[i],"_",weapons[x], ".png"))
+  }
+}
+
+```

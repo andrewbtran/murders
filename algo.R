@@ -1,14 +1,25 @@
-library(foreign)
+li %>% %>% brary(foreign)
 library(tidyverse)
+#library(maps)
+library(tigris)
+
+#library(stringr)
 
 data <- read.spss("data/SHR1976_2015.sav", to.data.frame=TRUE)
 data2 <- read.spss("data/SHR1976_2015.sav", to.data.frame=TRUE, use.value.labels=F)
 
-write.csv(data, "data/raw_data1.csv")
-write.csv(data2, "data/raw_data2.csv")
+data(fips_codes)
+county_names <- fips_codes
+county_names$fips <- as.numeric(paste0(county_names$state_code, county_names$county_code))
+county_names$county_name <- gsub(" County.*", "", county_names$county)
+county_names$county_name <- paste0(county_names$county_name, ", ", county_names$state)
+county_names <- select(county_names, fips, county_name)
 
-data <- read_csv("data/raw_data1.csv")
-data2 <- read_csv("data/raw_data2.csv")
+#write.csv(data, "data/raw_data1.csv")
+#write.csv(data2, "data/raw_data2.csv")
+
+#data <- read_csv("data/raw_data1.csv")
+#data2 <- read_csv("data/raw_data2.csv")
 
 data <- select(data,
                ID, CNTYFIPS, Ori, State, Agency, AGENCY_A, 
@@ -81,6 +92,17 @@ data <-  select(data,
 
 rm(data2)
 
+data$CNTYFIPS <- as.character(data$CNTYFIPS)
+data$CNTYFIPS <- ifelse(data$CNTYFIPS=="51560", "51005", data$CNTYFIPS)
+data$CNTYFIPS <- ifelse(data$CNTYFIPS=="02232", "02105", data$CNTYFIPS)
+data$CNTYFIPS <- ifelse(data$CNTYFIPS=="02280", "02195", data$CNTYFIPS)
+data$CNTYFIPS <- ifelse(data$CNTYFIPS=="02201", "02198", data$CNTYFIPS)
+data$CNTYFIPS <- ifelse(data$CNTYFIPS=="02201", "02198", data$CNTYFIPS)
+
+
+data$fips <- as.numeric(data$CNTYFIPS)
+data <- left_join(data, county_names)
+
 data <- mutate(data, 
                solved_num = ifelse(Solved_label=="Yes", 1, 0), 
                agegroup_label = ifelse(VicAge %in% 0:14, "0-14", 
@@ -101,17 +123,22 @@ murdergroup_msa <- data %>%
   summarize(total=n(), solved=sum(Solved_value)) %>%
   mutate(percent=round(solved/total*100,2))
 
+murdergroup_msa2 <- data %>%
+  group_by(murdgrp_msa, MSA_value, agegroup_label, VicSex_label, MSA_label, Weapon_label) %>%
+  summarize(total=n(), solved=sum(Solved_value)) %>%
+  mutate(percent=round(solved/total*100,2))
+
 murdergroup_cnty <- data %>%
-  group_by(murdgrp_cnty, agegroup_label, VicSex_label, MSA_label, Weapon_label) %>%
+  group_by(murdgrp_cnty, agegroup_label, VicSex_label, county_name, Weapon_label) %>%
   summarize(total=n(), solved=sum(Solved_value)) %>%
   mutate(percent=round(solved/total*100,2))
 
 spots_cnty <- murdergroup_cnty %>% 
-  filter(VicSex_label=="Female", murdgrp_cnty>0, percent <=.33) %>% 
+  filter(VicSex_label=="Female", murdgrp_cnty>0, percent <=33) %>% 
   mutate(unsolved=total-solved) %>% 
   arrange(desc(unsolved))
   
 spots_msa <- murdergroup_msa %>% 
-  filter(VicSex_label=="Female", murdgrp_msa>0, percent <=.33) %>% 
+  filter(VicSex_label=="Female", murdgrp_msa>0, percent <=33) %>% 
   mutate(unsolved=total-solved) %>% 
   arrange(desc(unsolved))
