@@ -1,7 +1,8 @@
-li %>% %>% brary(foreign)
+library(foreign)
 library(tidyverse)
 #library(maps)
 library(tigris)
+library(leaflet)
 
 #library(stringr)
 
@@ -142,3 +143,186 @@ spots_msa <- murdergroup_msa %>%
   filter(VicSex_label=="Female", murdgrp_msa>0, percent <=33) %>% 
   mutate(unsolved=total-solved) %>% 
   arrange(desc(unsolved))
+
+spots_cnty <- murdergroup_cnty %>% 
+  filter(VicSex_label=="Female", murdgrp_cnty>0, percent <=33) %>% 
+  mutate(unsolved=total-solved) %>% 
+  arrange(desc(unsolved))
+
+spots_cnty_2006 <- data %>%
+  group_by(murdgrp_cnty, agegroup_label, VicSex_label, county_name, Weapon_label, CNTYFIPS) %>%
+  filter(Year>=2006) %>% 
+  summarize(total=n(), solved=sum(Solved_value)) %>%
+  mutate(percent=round(solved/total*100,2)) %>%
+  filter(VicSex_label=="Female", murdgrp_cnty>0, percent <=33) %>% 
+  mutate(unsolved=total-solved) %>% 
+  filter(unsolved!=1) %>% 
+  arrange(desc(unsolved))
+
+
+#counties_map <- counties(cb = FALSE, resolution = "500k", year = NULL)
+counties_map <- counties(cb = T,  year = NULL)
+
+counties_map <- subset(counties_map, STATEFP!="78" & STATEFP!="72" & STATEFP!="66" & STATEFP!="60" & STATEFP!="69" & STATEFP!="02" & STATEFP!="15")
+#states_map <- states(cb=F, resolution="500k", year=NULL)
+states_map <- states(cb=T, year=NULL)
+
+#cm_fort <- fortify(counties_map, region="GEOID")
+
+#colnames(spots_cnty_2006)[colnames(spots_cnty_2006) == 'CNTYFIPS'] <- 'id'
+#spots_cnty_2006$id <- str_trim(spots_cnty_2006$id)
+#cm_fort_spots <- left_join(cm_fort, spots_cnty_2006)
+#cm_fort_spots <- filter(cm_fort_spots, !is.na(unsolved))
+
+#cm_fort_spots_2050 <- filter(cm_fort_spots, agegroup_label=="20-50")
+#cm_fort_spots_2050_s <- filter(cm_fort_spots_2050, Weapon_label=="Strangulation - hanging")
+
+age_groups <- unique(cm_fort_spots$agegroup_label)
+weapons <- unique(cm_fort_spots$Weapon_label)
+
+cm_sub <- filter(spots_cnty_2006, agegroup_label==age_groups[i], Weapon_label==weapons[x])
+
+counties_merged <- geo_join(counties_map, cm_sub, "GEOID", "id")
+counties_merged <- subset(counties_merged, !is.na(unsolved))
+
+pal_sb <- colorNumeric("Greens", domain=counties_merged$unsolved)
+
+popup_sb <- paste0("Unsolved: ", as.character(counties_merged$unsolved))
+
+
+leaflet() %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  setView(-98.483330, 38.712046, zoom = 4) %>% 
+  addPolygons(data = counties_map,
+              color ="#444444",
+              fillColor = "transparent", 
+              fillOpacity = 0.9, 
+              weight = 0.2, 
+              smoothFactor = 0.5) %>% 
+  addPolygons(data = states_map,
+              color ="#444444",
+              fillColor = "transparent", 
+              fillOpacity = 0.9, 
+              weight = 0.5, 
+              smoothFactor = 0.5) %>% 
+  addPolygons(data = counties_merged, 
+              fillColor = ~pal_sb(counties_merged$unsolved), 
+              fillOpacity = 0.9, 
+              weight = 0.4, 
+              smoothFactor = 0.2,
+              highlight = highlightOptions(
+                weight = 5,
+                color = "#666",
+                dashArray = "",
+                fillOpacity = 0.7,
+                bringToFront = TRUE),
+              label=popup_sb,
+              labelOptions = labelOptions(
+                style = list("font-weight" = "normal", padding = "3px 8px"),
+                textsize = "15px",
+                direction = "auto")) %>%
+  addLegend(pal = pal_sb, 
+            values = counties_merged$unsolved, 
+            position = "bottomright", 
+            title = "Unsolved")
+
+counties_agg <- data %>%
+  group_by(murdgrp_cnty, agegroup_label, VicSex_label, county_name, Weapon_label, CNTYFIPS) %>%
+  filter(Year>=2006) %>% 
+  summarize(total=n(), solved=sum(Solved_value)) %>%
+  mutate(percent=round(solved/total*100,2)) %>%
+  filter(VicSex_label=="Female", murdgrp_cnty>0, percent <=33) %>% 
+  mutate(unsolved=total-solved) %>% 
+  filter(unsolved!=1) %>% 
+  arrange(desc(unsolved)) %>% 
+  group_by(county_name, CNTYFIPS) %>% 
+  summarize(serial=n()) %>%
+  arrange(desc(as.character(CNTYFIPS)))
+
+#unique_2006 <- unique(spots_cnty_2006$id)
+unique_2006 <- unique(spots_cnty_2006$CNTYFIPS)
+
+for (i in 1:length(unique_2006)) {
+  #filtered <- filter(spots_cnty_2006, id==unique_2006[i])
+  filtered <- filter(spots_cnty_2006, CNTYFIPS==unique_2006[i])
+  
+  for (x in 1:nrow(filtered)) {
+    if (x==1) {
+      popuptxt <- paste0("<strong>", filtered$county_name[x], "</strong><br />", filtered$agegroup_label[x]," | ", filtered$Weapon_label[x], ": ", filtered$unsolved[x])
+    } else {
+      popuptxt <- paste0(popuptxt, "<br />",  filtered$agegroup_label[x]," | ", filtered$Weapon_label[x], ": ", filtered$unsolved[x])
+    }
+  }
+  the_join <- data.frame(id=unique_2006[i], popuptxt)
+  if (i == 1) {
+    for_join <- the_join
+  } else {
+    for_join <- rbind(for_join, the_join)
+  }
+}
+
+for_join$id <- as.character(for_join$id)
+for_join <- arrange(for_join, desc(id))
+counties_agg2 <- data.frame(counties_agg)
+counties_agg2 <- left_join(counties_agg2, for_join, by=c("CNTYFIPS"="id"))
+
+counties_agg2$CNTYFIPS <- str_trim(counties_agg2$CNTYFIPS)
+
+counties_merged_map <- geo_join(counties_map, counties_agg2, "GEOID", "CNTYFIPS")
+
+counties_merged_map <- subset(counties_merged_map, !is.na(serial))
+
+pal_sb <- colorNumeric("PuRd", domain=counties_merged_map$serial)
+
+leaflet() %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  setView(-98.483330, 38.712046, zoom = 4) %>% 
+  # addPolygons(data = counties_map,
+  #             color ="#444444",
+  #             fillColor = "transparent", 
+  #             fillOpacity = 0.9, 
+  #             weight = 0.2, 
+  #             smoothFactor = 0.5) %>% 
+  addPolygons(data = states_map,
+              color ="#444444",
+              fillColor = "transparent", 
+              fillOpacity = 0.9, 
+              weight = 0.5, 
+              smoothFactor = 0.5) %>% 
+  addPolygons(data = counties_merged_map, 
+              fillColor = ~pal_sb(counties_merged_map$serial), 
+              fillOpacity = 0.9, 
+              weight = 1, 
+              smoothFactor = 0.2,
+              popup=~popuptxt,
+              highlight = highlightOptions(
+                weight = 5,
+                color = "#666",
+                dashArray = "",
+                fillOpacity = 0.7,
+                bringToFront = TRUE)) %>%
+  # addPolygons(data = counties_merged_map, 
+  #             fillColor = ~pal_sb(counties_merged_map$serial), 
+  #             fillOpacity = 0.9, 
+  #             weight = 1, 
+  #             smoothFactor = 0.2,
+  #             highlight = highlightOptions(
+  #               weight = 5,
+  #               color = "#666",
+  #               dashArray = "",
+  #               fillOpacity = 0.7,
+  #               bringToFront = TRUE),
+  #             label=counties_merged_map$popuptxt,
+  #             labelOptions = labelOptions(
+  #               style = list("font-weight" = "normal", padding = "3px 8px"),
+  #               textsize = "15px",
+  #               direction = "auto")) %>%
+  addLegend(pal = pal_sb, 
+            values = counties_merged_map$serial, 
+            position = "bottomright", 
+            title = "Unsolved clusters")
+
+###
+
+file_size <- file.info("data/data.csv")
+

@@ -38,6 +38,8 @@ vignettes/*.pdf
 data/raw_data1.csv
 data/raw_data2.csv
 data/SHR1976_2015.sav
-data/UCR1965_2015.ccsv
+data/UCR1965_2015.csv
+data/data.csv
+
 comments
 .Rproj.user
