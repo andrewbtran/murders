@@ -14,14 +14,14 @@ library(leaflet)
 library(readr)
 library(tigris)
 
-#data <- read_csv("../data/data.csv")
-#counties_agg <- read_csv("../data/counties_agg_2006.csv")
+#data <- read_csv("data/data.csv")
+#counties_agg <- read_csv("data/counties_agg_2006.csv")
 
 
-files = list.files("../data_partition", pattern="*.csv")
+files = list.files("data_partition", pattern="*.csv")
 
 for (i in 1:length(files)) {
-  file_x <- read_csv(paste0("../data_partition", "/", files[i]))
+  file_x <- read_csv(paste0("data_partition", "/", files[i]))
   if (i ==1) {
     data <- file_x
   } else {
@@ -30,8 +30,8 @@ for (i in 1:length(files)) {
 
 }
 
-counties_map <- readOGR("../maps", "counties")
-states_map <- readOGR("../maps", "states")
+counties_map <- readOGR("maps", "counties")
+states_map <- readOGR("maps", "states")
 
 #counties_merged_map <- geo_join(counties_map, counties_agg, "GEOID", "CNTYFIPS")
 
