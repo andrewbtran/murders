@@ -9,7 +9,7 @@
 
 library(shiny)
 library(leaflet)
-
+library(shinycssloaders)
 # Define UI for application that draws a histogram
 shinyUI(fluidPage(
   
@@ -24,14 +24,16 @@ shinyUI(fluidPage(
                     min = 1976,
                     max = 2015,
                     value = c(2006,2015),
-                    sep="")
+                    sep=""),
+        sliderInput("threshold", "Percent cases solved threshold", 
+                    min=0, max=100, value=33)
      ),
      
     # Show a plot of the generated distribution
     mainPanel(
-      leafletOutput("murdermap"),
+      withSpinner(leafletOutput("murdermap"), type=6),
       p(),
-      dataTableOutput('table')
+      withSpinner(dataTableOutput('table'), type=7)
       
     )
   )

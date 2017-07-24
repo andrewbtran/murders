@@ -13,7 +13,8 @@ library(rgdal)
 library(leaflet)
 library(readr)
 library(tigris)
-
+library(stringr)
+library(DT)
 #data <- read_csv("data/data.csv")
 #counties_agg <- read_csv("data/counties_agg_2006.csv")
 
@@ -54,7 +55,7 @@ shinyServer(function(input, output) {
       filter(Year>=input$years[1] & Year <=input$years[2]) %>% 
       summarize(total=n(), solved=sum(Solved_value)) %>%
       mutate(percent=round(solved/total*100,2)) %>%
-      filter(VicSex_label=="Female", murdgrp_cnty>0, percent <=33) %>% 
+      filter(VicSex_label=="Female", murdgrp_cnty>0, percent <=input$threshold) %>% 
       mutate(unsolved=total-solved) %>% 
       filter(unsolved!=1) %>% 
       arrange(desc(unsolved))
@@ -89,13 +90,19 @@ shinyServer(function(input, output) {
       filter(Year>=input$years[1] & Year <=input$years[2]) %>% 
       summarize(total=n(), solved=sum(Solved_value)) %>%
       mutate(percent=round(solved/total*100,2)) %>%
-      filter(VicSex_label=="Female", murdgrp_cnty>0, percent <=33) %>% 
+      filter(VicSex_label=="Female", murdgrp_cnty>0, percent <=input$threshold) %>% 
       mutate(unsolved=total-solved) %>% 
       filter(unsolved!=1) %>% 
       arrange(desc(unsolved)) %>% 
       group_by(county_name, CNTYFIPS) %>% 
       summarize(serial=n()) %>%
       arrange(desc(as.character(CNTYFIPS)))
+    
+    counties_agg <- data.frame(counties_agg)
+    counties_agg <- left_join(counties_agg, for_join, by=c("CNTYFIPS"="id"))
+    
+    counties_agg$CNTYFIPS <- str_trim(counties_agg$CNTYFIPS)
+    
     
     counties_merged_map <- geo_join(counties_map, counties_agg, "GEOID", "CNTYFIPS")
     
@@ -142,18 +149,20 @@ shinyServer(function(input, output) {
   
   output$table <- renderDataTable({
     
-    data %>%
+    the_end <- data %>%
       group_by(murdgrp_cnty, agegroup_label, VicSex_label, county_name, Weapon_label, CNTYFIPS) %>%
       filter(Year>=input$years[1] & Year <=input$years[2]) %>% 
       summarize(total=n(), solved=sum(Solved_value)) %>%
       mutate(percent=round(solved/total*100,2)) %>%
-      filter(VicSex_label=="Female", murdgrp_cnty>0, percent <=33) %>% 
+      filter(VicSex_label=="Female", murdgrp_cnty>0, percent <=input$threshold) %>% 
       mutate(unsolved=total-solved) %>% 
       filter(unsolved!=1) %>% 
       arrange(desc(unsolved)) %>%
       ungroup() %>%
-      select(agegroup_label, county_name, Weapon_label, total, solved, percent, unsolved)
-    
+      mutate(State=gsub(".*, ", "", county_name), County=gsub(",.*", "", county_name)) %>%
+      mutate(agegroup_label=as.factor(agegroup_label), State=as.factor(State), Weapon_label=as.factor(Weapon_label)) %>% 
+      select(`Age Group`=agegroup_label, County, State, Weapon=Weapon_label, Total=total, Solved=solved, `%` = percent, Unsolved=unsolved)
+      datatable(the_end, filter = list(position = 'top', clear = FALSE))
   })
   
 })
